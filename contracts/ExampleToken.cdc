@@ -1,4 +1,5 @@
 import FungibleToken from 0xFUNGIBLETOKENADDRESS
+import MetadataViews from 0xMETADATAVIEWSADDRESS
 
 pub contract ExampleToken: FungibleToken {
 
@@ -40,6 +41,17 @@ pub contract ExampleToken: FungibleToken {
     /// The event that is emitted when a new burner resource is created
     pub event BurnerCreated()
 
+    /// Paths
+    ///
+    /// Storing Paths in the contract makes implementation easier for other services 
+
+    pub let vaultStoragePath: StoragePath 
+    pub let balancePublicPath: PublicPath
+    pub let receiverPublicPath: PublicPath 
+    pub let providerPrivatePath: PrivatePath 
+    pub let adminStoragePath: StoragePath
+
+
     /// Vault
     ///
     /// Each user stores an instance of only the Vault in their storage
@@ -52,7 +64,7 @@ pub contract ExampleToken: FungibleToken {
     /// out of thin air. A special Minter resource needs to be defined to mint
     /// new tokens.
     ///
-    pub resource Vault: FungibleToken.Provider, FungibleToken.Receiver, FungibleToken.Balance {
+    pub resource Vault: FungibleToken.Provider, FungibleToken.Receiver, FungibleToken.Balance, MetadataViews.Resolver {
 
         /// The total balance of this vault
         pub var balance: UFix64
@@ -93,6 +105,56 @@ pub contract ExampleToken: FungibleToken {
             emit TokensDeposited(amount: vault.balance, to: self.owner?.address)
             vault.balance = 0.0
             destroy vault
+        }
+
+        pub fun getViews() : [Type] {
+            return [
+                Type<MetadataViews.FTVaultDisplay>() , 
+                Type<MetadataViews.FTVaultData>() , 
+                Type<&{FungibleToken.Receiver}>() ,
+                Type<&{FungibleToken.Balance}>() 
+            ]
+        }
+
+        pub fun resolveView(_ view: Type) : AnyStruct? {
+            switch view {
+                case Type<MetadataViews.FTVaultData>() :
+                    return MetadataViews.FTVaultData(
+                            tokenAlias: "ExampleToken",
+                            storagePath: ExampleToken.vaultStoragePath,
+                            receiverPath: ExampleToken.receiverPublicPath,
+                            balancePath: ExampleToken.balancePublicPath,
+                            providerPath: ExampleToken.providerPrivatePath,
+                            vaultType: Type<&ExampleToken.Vault>(),
+                            receiverType: Type<&ExampleToken.Vault{FungibleToken.Receiver}>(),
+                            balanceType: Type<&ExampleToken.Vault{FungibleToken.Balance}>(),
+                            providerType: Type<&ExampleToken.Vault{FungibleToken.Provider}>(),
+                            customStoragePath: {Type<&ExampleToken.Administrator>() : ExampleToken.adminStoragePath},
+                            customPrivatePath: {}, 
+                            customPublicPath: {},
+                            createEmptyVault: fun () : @FungibleToken.Vault {return <- ExampleToken.createEmptyVault()}
+                        )
+
+                case Type<MetadataViews.FTVaultDisplay>() :
+                    return MetadataViews.FTVaultDisplay(
+                        name: "ExampleToken",
+                        description: "This is an ExampleToken",
+                        externalURL: MetadataViews.ExternalURL(url: "https://github.com/onflow/flow-nft/blob/master/contracts/ExampleNFT.cdc"),
+                        squareImage: MetadataViews.Media(file: MetadataViews.HTTPFile(url: "https://s2.coinmarketcap.com/static/img/coins/200x200/4558.png"), mediaType: "image/png"),
+                        bannerImage: MetadataViews.Media(file: MetadataViews.HTTPFile(url: "https://assets.website-files.com/5f6294c0c7a8cdd643b1c820/5f6294c0c7a8cda55cb1c936_Flow_Wordmark.svg"), mediaType: "image/svg"),
+                        socials: {"Twitter": MetadataViews.ExternalURL(url: "https://twitter.com/flow_blockchain")}
+                    )
+                
+                
+                case Type<&{FungibleToken.Receiver}>() :
+                    return (&self as &{FungibleToken.Receiver}?)!
+
+                case Type<&{FungibleToken.Balance}>() :
+                    return (&self as &{FungibleToken.Balance}?)!
+
+                default : 
+                    return nil 
+            }
         }
 
         destroy() {
@@ -185,6 +247,11 @@ pub contract ExampleToken: FungibleToken {
 
     init() {
         self.totalSupply = 1000.0
+        self.vaultStoragePath = /storage/exampleTokenVault
+        self.balancePublicPath = /public/exampleTokenBalance
+        self.receiverPublicPath = /public/exampleTokenReceiver
+        self.providerPrivatePath = /private/exampleTokenVault
+        self.adminStoragePath = /storage/exampleTokenAdmin
 
         // Create the Vault with the total supply of tokens and save it in storage
         //
@@ -194,21 +261,21 @@ pub contract ExampleToken: FungibleToken {
         // Create a public capability to the stored Vault that only exposes
         // the `deposit` method through the `Receiver` interface
         //
-        self.account.link<&{FungibleToken.Receiver}>(
-            /public/exampleTokenReceiver,
-            target: /storage/exampleTokenVault
+        self.account.link<&{FungibleToken.Receiver, MetadataViews.Resolver}>(
+            self.receiverPublicPath,
+            target: self.vaultStoragePath
         )
 
         // Create a public capability to the stored Vault that only exposes
         // the `balance` field through the `Balance` interface
         //
-        self.account.link<&ExampleToken.Vault{FungibleToken.Balance}>(
-            /public/exampleTokenBalance,
-            target: /storage/exampleTokenVault
+        self.account.link<&ExampleToken.Vault{FungibleToken.Balance, MetadataViews.Resolver}>(
+            self.balancePublicPath,
+            target: self.vaultStoragePath
         )
 
         let admin <- create Administrator()
-        self.account.save(<-admin, to: /storage/exampleTokenAdmin)
+        self.account.save(<-admin, to: self.adminStoragePath)
 
         // Emit an event that shows that the contract was initialized
         //
