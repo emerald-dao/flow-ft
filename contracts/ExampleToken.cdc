@@ -1,10 +1,16 @@
-import FungibleToken from 0xFUNGIBLETOKENADDRESS
-import MetadataViews from 0xMETADATAVIEWSADDRESS
+import FungibleToken from "./FungibleToken.cdc"
+import MetadataViews from "./MetadataViews.cdc"
 
 pub contract ExampleToken: FungibleToken {
-
     /// Total supply of ExampleTokens in existence
     pub var totalSupply: UFix64
+
+    /// Storage and Public Paths
+    pub let VaultStoragePath: StoragePath
+    pub let ReceiverPublicPath: PublicPath
+    pub let BalancePublicPath: PublicPath
+    pub let ProviderPrivatePath: PrivatePath
+    pub let AdminStoragePath: StoragePath
 
     /// TokensInitialized
     ///
@@ -40,17 +46,6 @@ pub contract ExampleToken: FungibleToken {
     ///
     /// The event that is emitted when a new burner resource is created
     pub event BurnerCreated()
-
-    /// Paths
-    ///
-    /// Storing Paths in the contract makes implementation easier for other services 
-
-    pub let vaultStoragePath: StoragePath 
-    pub let balancePublicPath: PublicPath
-    pub let receiverPublicPath: PublicPath 
-    pub let providerPrivatePath: PrivatePath 
-    pub let adminStoragePath: StoragePath
-
 
     /// Vault
     ///
@@ -121,15 +116,15 @@ pub contract ExampleToken: FungibleToken {
                 case Type<MetadataViews.FTVaultData>() :
                     return MetadataViews.FTVaultData(
                             tokenAlias: "ExampleToken",
-                            storagePath: ExampleToken.vaultStoragePath,
-                            receiverPath: ExampleToken.receiverPublicPath,
-                            balancePath: ExampleToken.balancePublicPath,
-                            providerPath: ExampleToken.providerPrivatePath,
+                            storagePath: ExampleToken.VaultStoragePath,
+                            receiverPath: ExampleToken.ReceiverPublicPath,
+                            balancePath: ExampleToken.BalancePublicPath,
+                            providerPath: ExampleToken.ProviderPrivatePath,
                             vaultType: Type<&ExampleToken.Vault>(),
                             receiverType: Type<&ExampleToken.Vault{FungibleToken.Receiver}>(),
                             balanceType: Type<&ExampleToken.Vault{FungibleToken.Balance}>(),
                             providerType: Type<&ExampleToken.Vault{FungibleToken.Provider}>(),
-                            customStoragePath: {Type<&ExampleToken.Administrator>() : ExampleToken.adminStoragePath},
+                            customStoragePath: {Type<&ExampleToken.Administrator>() : ExampleToken.AdminStoragePath},
                             customPrivatePath: {}, 
                             customPublicPath: {},
                             createEmptyVault: fun () : @FungibleToken.Vault {return <- ExampleToken.createEmptyVault()}
@@ -247,35 +242,35 @@ pub contract ExampleToken: FungibleToken {
 
     init() {
         self.totalSupply = 1000.0
-        self.vaultStoragePath = /storage/exampleTokenVault
-        self.balancePublicPath = /public/exampleTokenBalance
-        self.receiverPublicPath = /public/exampleTokenReceiver
-        self.providerPrivatePath = /private/exampleTokenVault
-        self.adminStoragePath = /storage/exampleTokenAdmin
+        self.ProviderPrivatePath = /private/exampleTokenVault
+        self.VaultStoragePath = /storage/exampleTokenVault
+        self.ReceiverPublicPath = /public/exampleTokenReceiver
+        self.BalancePublicPath = /public/exampleTokenBalance
+        self.AdminStoragePath = /storage/exampleTokenAdmin
 
         // Create the Vault with the total supply of tokens and save it in storage
         //
         let vault <- create Vault(balance: self.totalSupply)
-        self.account.save(<-vault, to: /storage/exampleTokenVault)
+        self.account.save(<-vault, to: self.VaultStoragePath)
 
         // Create a public capability to the stored Vault that only exposes
         // the `deposit` method through the `Receiver` interface
         //
         self.account.link<&{FungibleToken.Receiver, MetadataViews.Resolver}>(
-            self.receiverPublicPath,
-            target: self.vaultStoragePath
+            self.ReceiverPublicPath,
+            target: self.VaultStoragePath
         )
 
         // Create a public capability to the stored Vault that only exposes
         // the `balance` field through the `Balance` interface
         //
         self.account.link<&ExampleToken.Vault{FungibleToken.Balance, MetadataViews.Resolver}>(
-            self.balancePublicPath,
-            target: self.vaultStoragePath
+            self.BalancePublicPath,
+            target: self.VaultStoragePath
         )
 
         let admin <- create Administrator()
-        self.account.save(<-admin, to: self.adminStoragePath)
+        self.account.save(<-admin, to: self.AdminStoragePath)
 
         // Emit an event that shows that the contract was initialized
         //
