@@ -1,7 +1,7 @@
 import FungibleToken from "./FungibleToken.cdc"
+import MetadataViews from "./MetadataViews.cdc"
 
 pub contract ExampleToken: FungibleToken {
-
     /// Total supply of ExampleTokens in existence
     pub var totalSupply: UFix64
 
@@ -9,6 +9,7 @@ pub contract ExampleToken: FungibleToken {
     pub let VaultStoragePath: StoragePath
     pub let ReceiverPublicPath: PublicPath
     pub let BalancePublicPath: PublicPath
+    pub let ProviderPrivatePath: PrivatePath
     pub let AdminStoragePath: StoragePath
 
     /// TokensInitialized
@@ -58,7 +59,7 @@ pub contract ExampleToken: FungibleToken {
     /// out of thin air. A special Minter resource needs to be defined to mint
     /// new tokens.
     ///
-    pub resource Vault: FungibleToken.Provider, FungibleToken.Receiver, FungibleToken.Balance {
+    pub resource Vault: FungibleToken.Provider, FungibleToken.Receiver, FungibleToken.Balance, MetadataViews.Resolver {
 
         /// The total balance of this vault
         pub var balance: UFix64
@@ -99,6 +100,56 @@ pub contract ExampleToken: FungibleToken {
             emit TokensDeposited(amount: vault.balance, to: self.owner?.address)
             vault.balance = 0.0
             destroy vault
+        }
+
+        pub fun getViews() : [Type] {
+            return [
+                Type<MetadataViews.FTVaultDisplay>() , 
+                Type<MetadataViews.FTVaultData>() , 
+                Type<&{FungibleToken.Receiver}>() ,
+                Type<&{FungibleToken.Balance}>() 
+            ]
+        }
+
+        pub fun resolveView(_ view: Type) : AnyStruct? {
+            switch view {
+                case Type<MetadataViews.FTVaultData>() :
+                    return MetadataViews.FTVaultData(
+                            tokenAlias: "ExampleToken",
+                            storagePath: ExampleToken.VaultStoragePath,
+                            receiverPath: ExampleToken.ReceiverPublicPath,
+                            balancePath: ExampleToken.BalancePublicPath,
+                            providerPath: ExampleToken.ProviderPrivatePath,
+                            vaultType: Type<&ExampleToken.Vault>(),
+                            receiverType: Type<&ExampleToken.Vault{FungibleToken.Receiver}>(),
+                            balanceType: Type<&ExampleToken.Vault{FungibleToken.Balance}>(),
+                            providerType: Type<&ExampleToken.Vault{FungibleToken.Provider}>(),
+                            customStoragePath: {Type<&ExampleToken.Administrator>() : ExampleToken.AdminStoragePath},
+                            customPrivatePath: {}, 
+                            customPublicPath: {},
+                            createEmptyVault: fun () : @FungibleToken.Vault {return <- ExampleToken.createEmptyVault()}
+                        )
+
+                case Type<MetadataViews.FTVaultDisplay>() :
+                    return MetadataViews.FTVaultDisplay(
+                        name: "ExampleToken",
+                        description: "This is an ExampleToken",
+                        externalURL: MetadataViews.ExternalURL(url: "https://github.com/onflow/flow-nft/blob/master/contracts/ExampleNFT.cdc"),
+                        squareImage: MetadataViews.Media(file: MetadataViews.HTTPFile(url: "https://s2.coinmarketcap.com/static/img/coins/200x200/4558.png"), mediaType: "image/png"),
+                        bannerImage: MetadataViews.Media(file: MetadataViews.HTTPFile(url: "https://assets.website-files.com/5f6294c0c7a8cdd643b1c820/5f6294c0c7a8cda55cb1c936_Flow_Wordmark.svg"), mediaType: "image/svg"),
+                        socials: {"Twitter": MetadataViews.ExternalURL(url: "https://twitter.com/flow_blockchain")}
+                    )
+                
+                
+                case Type<&{FungibleToken.Receiver}>() :
+                    return (&self as &{FungibleToken.Receiver}?)!
+
+                case Type<&{FungibleToken.Balance}>() :
+                    return (&self as &{FungibleToken.Balance}?)!
+
+                default : 
+                    return nil 
+            }
         }
 
         destroy() {
@@ -191,7 +242,7 @@ pub contract ExampleToken: FungibleToken {
 
     init() {
         self.totalSupply = 1000.0
-
+        self.ProviderPrivatePath = /private/exampleTokenVault
         self.VaultStoragePath = /storage/exampleTokenVault
         self.ReceiverPublicPath = /public/exampleTokenReceiver
         self.BalancePublicPath = /public/exampleTokenBalance
@@ -205,7 +256,7 @@ pub contract ExampleToken: FungibleToken {
         // Create a public capability to the stored Vault that only exposes
         // the `deposit` method through the `Receiver` interface
         //
-        self.account.link<&{FungibleToken.Receiver}>(
+        self.account.link<&{FungibleToken.Receiver, MetadataViews.Resolver}>(
             self.ReceiverPublicPath,
             target: self.VaultStoragePath
         )
@@ -213,7 +264,7 @@ pub contract ExampleToken: FungibleToken {
         // Create a public capability to the stored Vault that only exposes
         // the `balance` field through the `Balance` interface
         //
-        self.account.link<&ExampleToken.Vault{FungibleToken.Balance}>(
+        self.account.link<&ExampleToken.Vault{FungibleToken.Balance, MetadataViews.Resolver}>(
             self.BalancePublicPath,
             target: self.VaultStoragePath
         )
